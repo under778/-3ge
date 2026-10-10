@@ -5,13 +5,17 @@ package.domain = org.under
 source.dir = .
 source.include_exts = py,png,jpg,mp3,wav,ttf
 version = 1.0
-# 注意：这里是 kivy，绝对不能是 pygame
-requirements = python3, kivy
+
+requirements = python3,kivy
+
 orientation = landscape
 fullscreen = 1
-android.api = 26
+
+# 使用 31 和 25b，这是 CI 环境兼容性最好的组合
+android.api = 31
 android.minapi = 21
-android.ndk = 21e
-android.archs = arm64-v8a, armeabi-v7a
+android.ndk = 25b
+android.archs = arm64-v8a
 android.accept_sdk_license = True
-p4a.branch = v2023.01.28
+
+# 删掉 p4a.branch，让 Buildozer 使用它默认的稳定版本
