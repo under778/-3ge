@@ -31,6 +31,10 @@ jobs:
         pip install buildozer cython==0.29.36
 
     - name: Build with Buildozer
+      env:
+        # 关键：强制清空云端自带的 NDK 环境变量，让 P4A 用自己下载的
+        ANDROID_NDK_HOME: ""
+        ANDROID_NDK_ROOT: ""
       run: |
         yes | buildozer android debug
 
