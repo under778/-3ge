@@ -1,22 +1,17 @@
 # -*- coding: utf-8 -*-
-"""
-横向2D吃丹修仙游戏（带存档功能）—— Kivy移植版
-安卓适配修复：等比缩放、触摸映射、音频安全加载
-"""
-
 import os
 import sys
 import random
 import time
 import pickle
 
-os.environ['KIVY_NO_CONSOLELOG'] = '1'
+# 注意：去掉了 KIVY_NO_CONSOLELOG，方便你抓日志
 
 from kivy.app import App
 from kivy.core.window import Window
 from kivy.uix.widget import Widget
 from kivy.uix.floatlayout import FloatLayout
-from kivy.graphics import Color, Rectangle, Ellipse, Line, PushMatrix, PopMatrix, Scale, Translate
+from kivy.graphics import Color, Rectangle, Ellipse, Line, PushMatrix, PopMatrix, Scale, Translate, InstructionGroup
 from kivy.core.text import Label as CoreLabel, LabelBase
 from kivy.core.audio import SoundLoader
 from kivy.clock import Clock
@@ -37,16 +32,13 @@ def get_path(filename):
     return os.path.join(BASE_DIR, filename)
 
 def cun_dang_lu_jing():
-    if hasattr(sys, 'getandroidapilevel') or 'ANDROID_ARGUMENT' in os.environ:
-        private_dir = os.environ.get('ANDROID_PRIVATE', '')
-        if private_dir and os.path.isdir(private_dir):
-            return os.path.join(private_dir, 'cundang.pkl')
-        try:
-            user_home = os.path.expanduser('~')
-            if user_home and os.path.isdir(user_home):
-                return os.path.join(user_home, 'cundang.pkl')
-        except Exception:
-            pass
+    # 采用大佬建议：使用 Kivy 官方推荐的应用私有目录
+    try:
+        app = App.get_running_app()
+        if app:
+            return os.path.join(app.user_data_dir, 'cundang.pkl')
+    except Exception:
+        pass
     return 'cundang.pkl'
 
 # ==================== 常量定义 ====================
@@ -59,7 +51,6 @@ YD_SU_DU = 5
 ZHEN_LV = 60
 GUA_JI_CHI_ZD = 200
 LUN_HUI_AN_MS = 10
-CUN_DANG_WJ = cun_dang_lu_jing()
 LUN_HUI_JI_CHU_ZL = 5000
 
 JIAN_KONG_GE = 32
@@ -155,7 +146,6 @@ def zhuan_yan_se(yan_se):
 class YouXi(Widget):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        # 填满整个屏幕，Kivy 会自己处理尺寸
         self.size_hint = (1, 1)
 
         self.zi_ti_da = 30
@@ -163,13 +153,11 @@ class YouXi(Widget):
         self.zi_ti_xiao = 14
         self.zi_ti_jiao_cheng = 16
 
-        # 加载玩家图片
         try:
             self.wan_jia_tp = CoreImage(get_path("player.png")).texture
         except Exception:
             self.wan_jia_tp = None
 
-        # 背景音乐
         self.yin_yue = None
         try:
             self.yin_yue = SoundLoader.load(get_path("bgm.wav"))
@@ -178,9 +166,8 @@ class YouXi(Widget):
                 self.yin_yue.volume = 0.3
                 self.yin_yue.play()
         except Exception:
-            self.yin_yue = None
+            pass
 
-        # 音效
         try:
             self.yin_xiao_niu = SoundLoader.load(get_path("niubi.wav"))
         except Exception:
@@ -219,12 +206,14 @@ class YouXi(Widget):
         self.an_xia_de_di_bu_an = None
         self.jian_pan_tan_chuang = None
 
+        # 核心改造：用 InstructionGroup 代替 canvas.clear()
+        self.draw_group = InstructionGroup()
+        self.canvas.add(self.draw_group)
+
         self.jia_zai_cun_dang()
         self.dang_qian_dy_dian = self.sheng_cheng_dy_dian(self.dang_qian_dt)
 
-    # ==================== 缩放辅助 ====================
     def _huo_qu_suo_fang(self):
-        """计算等比例缩放因子和居中偏移"""
         if self.width <= 0 or self.height <= 0:
             return 1.0, 0, 0
         scale = min(self.width / PING_MU_KD, self.height / PING_MU_GD)
@@ -232,7 +221,6 @@ class YouXi(Widget):
         offset_y = (self.height - PING_MU_GD * scale) / 2
         return scale, offset_x, offset_y
 
-    # ==================== 绘制辅助函数 ====================
     def _huo_qu_wen_ben_wen_li(self, wen_ben, zi_ti, yan_se):
         guan_jian = (wen_ben, zi_ti, yan_se)
         if guan_jian not in self._wen_ben_huan_cun:
@@ -247,27 +235,26 @@ class YouXi(Widget):
         if ju_zhong:
             x = x - kuan // 2
         ky = PING_MU_GD - y - tex.height
-        Color(1, 1, 1, 1)
-        Rectangle(texture=tex, pos=(x, ky), size=tex.size)
+        self.draw_group.add(Color(1, 1, 1, 1))
+        self.draw_group.add(Rectangle(texture=tex, pos=(x, ky), size=tex.size))
         return kuan
 
     def _hua_ju_xing(self, yan_se, x, y, kuan, gao, bian_kuan=0, bian_yan_se=None):
         ky = PING_MU_GD - y - gao
-        Color(*zhuan_yan_se(yan_se))
-        Rectangle(pos=(x, ky), size=(kuan, gao))
+        self.draw_group.add(Color(*zhuan_yan_se(yan_se)))
+        self.draw_group.add(Rectangle(pos=(x, ky), size=(kuan, gao)))
         if bian_kuan > 0:
-            Color(*zhuan_yan_se(bian_yan_se if bian_yan_se else YS_BAI))
-            Line(rectangle=(x, ky, kuan, gao), width=bian_kuan)
+            self.draw_group.add(Color(*zhuan_yan_se(bian_yan_se if bian_yan_se else YS_BAI)))
+            self.draw_group.add(Line(rectangle=(x, ky, kuan, gao), width=bian_kuan))
 
     def _hua_yuan(self, yan_se, cx, cy, ban_jing):
-        Color(*zhuan_yan_se(yan_se))
-        Ellipse(pos=(cx - ban_jing, PING_MU_GD - cy - ban_jing), size=(ban_jing * 2, ban_jing * 2))
+        self.draw_group.add(Color(*zhuan_yan_se(yan_se)))
+        self.draw_group.add(Ellipse(pos=(cx - ban_jing, PING_MU_GD - cy - ban_jing), size=(ban_jing * 2, ban_jing * 2)))
 
     def _hua_xian(self, yan_se, x1, y1, x2, y2, kuan=1):
-        Color(*zhuan_yan_se(yan_se))
-        Line(points=[x1, PING_MU_GD - y1, x2, PING_MU_GD - y2], width=kuan)
+        self.draw_group.add(Color(*zhuan_yan_se(yan_se)))
+        self.draw_group.add(Line(points=[x1, PING_MU_GD - y1, x2, PING_MU_GD - y2], width=kuan))
 
-    # ==================== 原有逻辑函数 ====================
     def sheng_cheng_dy_dian(self, di_tu_bian_hao):
         dy_dian = []
         for jie_shu in range(1, 11):
@@ -310,24 +297,16 @@ class YouXi(Widget):
         return None
 
     def _di_bu_an_niu_an_x(self, ming):
-        if ming == "zuo":
-            self.an_jian_zt[JIAN_LEFT] = True
-        elif ming == "you":
-            self.an_jian_zt[JIAN_RIGHT] = True
-        elif ming == "kongge":
-            self.chu_li_an_jian_an_x(JIAN_KONG_GE)
-        elif ming == "z":
-            self.an_jian_zt[JIAN_Z] = True
-        elif ming == "x":
-            self.an_jian_zt[JIAN_X] = True
+        if ming == "zuo": self.an_jian_zt[JIAN_LEFT] = True
+        elif ming == "you": self.an_jian_zt[JIAN_RIGHT] = True
+        elif ming == "kongge": self.chu_li_an_jian_an_x(JIAN_KONG_GE)
+        elif ming == "z": self.an_jian_zt[JIAN_Z] = True
+        elif ming == "x": self.an_jian_zt[JIAN_X] = True
 
     def _di_bu_an_niu_tai_qi(self, ming):
-        if ming == "zuo":
-            self.an_jian_zt[JIAN_LEFT] = False
-        elif ming == "you":
-            self.an_jian_zt[JIAN_RIGHT] = False
-        elif ming == "kongge":
-            self.chu_li_an_jian_tai_qi(JIAN_KONG_GE)
+        if ming == "zuo": self.an_jian_zt[JIAN_LEFT] = False
+        elif ming == "you": self.an_jian_zt[JIAN_RIGHT] = False
+        elif ming == "kongge": self.chu_li_an_jian_tai_qi(JIAN_KONG_GE)
         elif ming == "z":
             self.an_jian_zt[JIAN_Z] = False
             self.chu_li_an_jian_tai_qi(JIAN_Z)
@@ -357,17 +336,14 @@ class YouXi(Widget):
         an_niu_bu_ju.add_widget(que_ding_an)
         an_niu_bu_ju.add_widget(qu_xiao_an)
         bu_ju.add_widget(an_niu_bu_ju)
-        tan_chuang = Popup(title='键盘输入（用于触发彩蛋）', content=bu_ju, size_hint=(0.45, 0.35), title_size=20)
-        try:
-            tan_chuang.title_font = ZI_TI_MING
-        except Exception:
-            pass
+        tan_chuang = Popup(title='键盘输入', content=bu_ju, size_hint=(0.45, 0.35), title_size=20)
+        try: tan_chuang.title_font = ZI_TI_MING
+        except Exception: pass
         self.jian_pan_tan_chuang = tan_chuang
 
         def _que_ding(*args):
             for zi_fu in shu_ru_kuang.text:
-                if zi_fu.isalpha():
-                    self.chu_li_an_jian_an_x(ord(zi_fu.lower()))
+                if zi_fu.isalpha(): self.chu_li_an_jian_an_x(ord(zi_fu.lower()))
             tan_chuang.dismiss()
 
         que_ding_an.bind(on_release=_que_ding)
@@ -400,8 +376,7 @@ class YouXi(Widget):
         self._hua_xian(YS_TU, 0, DI_MIAN_Y, PING_MU_KD, DI_MIAN_Y, 3)
 
     def hui_hua_dan_yao_dian(self):
-        if self.dang_qian_cj != "map":
-            return
+        if self.dang_qian_cj != "map": return
         for dy in self.dang_qian_dy_dian:
             sx = dy["x"] - self.she_xiang_x
             if -100 <= sx <= PING_MU_KD + 100:
@@ -432,8 +407,8 @@ class YouXi(Widget):
     def hui_hua_wan_jia(self):
         sx = self.wan_jia_x - self.she_xiang_x
         if self.wan_jia_tp is not None:
-            Color(1, 1, 1, 1)
-            Rectangle(texture=self.wan_jia_tp, pos=(sx, PING_MU_GD - self.wan_jia_y - 50), size=(40, 50))
+            self.draw_group.add(Color(1, 1, 1, 1))
+            self.draw_group.add(Rectangle(texture=self.wan_jia_tp, pos=(sx, PING_MU_GD - self.wan_jia_y - 50), size=(40, 50)))
         else:
             self._hua_ju_xing(YS_LAN, sx, self.wan_jia_y, 40, 50)
 
@@ -451,10 +426,8 @@ class YouXi(Widget):
         self._hua_ju_xing((0, 0, 0, 200), 0, 0, PING_MU_KD, PING_MU_GD)
         self._hua_wen_ben("选择地图", PING_MU_KD // 2, 50, self.zi_ti_da, YS_BAI, ju_zhong=True)
         for i in range(10):
-            hang = i // 5
-            lie = i % 5
-            ax = 200 + lie * 160
-            ay = 150 + hang * 150
+            hang = i // 5; lie = i % 5
+            ax = 200 + lie * 160; ay = 150 + hang * 150
             self._hua_ju_xing(YS_LAN, ax, ay, 140, 80, 2, YS_BAI)
             self._hua_wen_ben(f"地图{i + 1}", ax + 70, ay + 25, self.zi_ti_zhong, YS_BAI, ju_zhong=True)
         self._hua_ju_xing(YS_HUI, PING_MU_KD // 2 - 50, 500, 100, 40, 2, YS_BAI)
@@ -499,10 +472,8 @@ class YouXi(Widget):
         self._hua_wen_ben(f"当前轮回数: {self.lun_hui_cs}", 300, 250, self.zi_ti_zhong, YS_BAI)
         self._hua_wen_ben(f"所需战力: {shu_zi_zhuan_huan(suo_xu)}", 300, 280, self.zi_ti_zhong, YS_BAI)
         self._hua_wen_ben(f"当前战力: {shu_zi_zhuan_huan(self.zhan_li)}", 300, 310, self.zi_ti_zhong, YS_BAI)
-        if self.zhan_li >= suo_xu:
-            self._hua_wen_ben("√ 战力充足，可以轮回！", 300, 340, self.zi_ti_zhong, YS_LV)
-        else:
-            self._hua_wen_ben("× 战力不足，无法轮回！", 300, 340, self.zi_ti_zhong, YS_HONG)
+        if self.zhan_li >= suo_xu: self._hua_wen_ben("√ 战力充足，可以轮回！", 300, 340, self.zi_ti_zhong, YS_LV)
+        else: self._hua_wen_ben("× 战力不足，无法轮回！", 300, 340, self.zi_ti_zhong, YS_HONG)
         self._hua_ju_xing(YS_LV, 350, 380, 120, 40, 2, YS_BAI)
         self._hua_wen_ben("确认(Y)", 410, 390, self.zi_ti_zhong, YS_BAI, ju_zhong=True)
         self._hua_ju_xing(YS_HONG, 730, 380, 120, 40, 2, YS_BAI)
@@ -518,34 +489,23 @@ class YouXi(Widget):
 
     def jin_ru_fu_ben(self, fu_ben_bian_hao):
         if fu_ben_bian_hao == 1:
-            self.dang_qian_cj = "fuben1"
-            self.wan_jia_x = 200
-            self.xian_shi_zi_mu("进入副本1（倍率丹）")
+            self.dang_qian_cj = "fuben1"; self.wan_jia_x = 200; self.xian_shi_zi_mu("进入副本1")
         elif fu_ben_bian_hao == 2:
-            self.dang_qian_cj = "fuben2"
-            self.wan_jia_x = 200
-            self.xian_shi_zi_mu("进入副本2（无极魔丹）")
+            self.dang_qian_cj = "fuben2"; self.wan_jia_x = 200; self.xian_shi_zi_mu("进入副本2")
         self.shang_ci_qy = ""
 
     def gua_ji(self):
-        self.dang_qian_dt = 1
-        self.dang_qian_cj = "map"
-        self.wan_jia_x = 100
-        self.dang_qian_dy_dian = self.sheng_cheng_dy_dian(1)
-        self.shang_ci_qy = ""
+        self.dang_qian_dt = 1; self.dang_qian_cj = "map"; self.wan_jia_x = 100
+        self.dang_qian_dy_dian = self.sheng_cheng_dy_dian(1); self.shang_ci_qy = ""
         self.xian_shi_zi_mu("进入挂机池")
 
     def hui_cheng(self):
-        self.dang_qian_dt = 1
-        self.dang_qian_cj = "map"
-        self.wan_jia_x = DAN_YAO_KS
-        self.dang_qian_dy_dian = self.sheng_cheng_dy_dian(1)
-        self.shang_ci_qy = ""
+        self.dang_qian_dt = 1; self.dang_qian_cj = "map"; self.wan_jia_x = DAN_YAO_KS
+        self.dang_qian_dy_dian = self.sheng_cheng_dy_dian(1); self.shang_ci_qy = ""
         self.xian_shi_zi_mu("回城")
 
     def sheng_cheng_dan_yao(self):
-        if self.dang_qian_cj != "map":
-            return
+        if self.dang_qian_cj != "map": return
         for dy in self.dang_qian_dy_dian:
             if abs(self.wan_jia_x - dy["x"]) < 40:
                 suo_xu = dy["jia_cheng"] * 300
@@ -556,23 +516,17 @@ class YouXi(Widget):
                             "ming_cheng": dy["ming_cheng"], "jia_cheng": dy["jia_cheng"], "lei_xing": "chang_gui"
                         })
                     self.xian_shi_zi_mu(f"生成{self.diao_luo_bl}个{dy['ming_cheng']}")
-                else:
-                    self.xian_shi_zi_mu(f"战力不足！需要{shu_zi_zhuan_huan(suo_xu)}战力")
+                else: self.xian_shi_zi_mu(f"战力不足！")
                 return
         self.xian_shi_zi_mu("不在丹药生成点附近")
 
     def sheng_cheng_wu_ji_dan(self):
-        if self.dang_qian_cj != "fuben2":
-            return
+        if self.dang_qian_cj != "fuben2": return
         gai_lv = random.random()
-        if gai_lv < 0.60:
-            shu_liang = 1
-        elif gai_lv < 0.90:
-            shu_liang = 3
-        elif gai_lv < 0.9999:
-            shu_liang = 5
-        else:
-            shu_liang = 20
+        if gai_lv < 0.60: shu_liang = 1
+        elif gai_lv < 0.90: shu_liang = 3
+        elif gai_lv < 0.9999: shu_liang = 5
+        else: shu_liang = 20
         for i in range(shu_liang):
             self.wu_ji_dan_lb.append({
                 "x": self.wan_jia_x + random.randint(-30, 30), "y": DI_MIAN_Y - 15,
@@ -581,39 +535,28 @@ class YouXi(Widget):
         self.xian_shi_zi_mu(f"生成{shu_liang}颗无极魔丹！")
 
     def chi_suo_you_dan(self):
-        chi_le = 0
-        zong_jia = 0
+        chi_le = 0; zong_jia = 0
         if self.dang_qian_cj == "map":
             dy_lb = self.di_tu_dan_yao[self.dang_qian_dt - 1]
             for dy in dy_lb:
                 jia_cheng = int(dy["jia_cheng"] * self.lun_hui_jc)
-                self.zhan_li += jia_cheng
-                zong_jia += jia_cheng
-                chi_le += 1
+                self.zhan_li += jia_cheng; zong_jia += jia_cheng; chi_le += 1
             dy_lb.clear()
         elif self.dang_qian_cj == "fuben2":
             for dy in self.wu_ji_dan_lb:
                 jia_cheng = int(self.zhan_li * 0.0001 * self.lun_hui_jc)
-                if jia_cheng < 1:
-                    jia_cheng = 1
-                self.zhan_li += jia_cheng
-                zong_jia += jia_cheng
-                chi_le += 1
+                if jia_cheng < 1: jia_cheng = 1
+                self.zhan_li += jia_cheng; zong_jia += jia_cheng; chi_le += 1
             self.wu_ji_dan_lb.clear()
-        if chi_le > 0:
-            self.xian_shi_zi_mu(f"吃掉{chi_le}颗丹药，战力+{shu_zi_zhuan_huan(zong_jia)}")
-        else:
-            self.xian_shi_zi_mu("没有可吃的丹药")
+        if chi_le > 0: self.xian_shi_zi_mu(f"吃掉{chi_le}颗丹药，战力+{shu_zi_zhuan_huan(zong_jia)}")
+        else: self.xian_shi_zi_mu("没有可吃的丹药")
 
     def chi_bei_lv_dan(self):
-        if self.dang_qian_cj != "fuben1":
-            return
+        if self.dang_qian_cj != "fuben1": return
         if len(self.bei_lv_dan_lb) > 0:
-            self.bei_lv_dan_lb.pop(0)
-            self.diao_luo_bl += 1
+            self.bei_lv_dan_lb.pop(0); self.diao_luo_bl += 1
             self.xian_shi_zi_mu(f"吃倍率丹！掉落倍率+1，当前{self.diao_luo_bl}")
-        else:
-            self.xian_shi_zi_mu("没有倍率丹可吃")
+        else: self.xian_shi_zi_mu("没有倍率丹可吃")
 
     def lun_hui(self):
         suo_xu = LUN_HUI_SL_ZS[self.lun_hui_cs] if self.lun_hui_cs < 20 else 0
@@ -629,63 +572,44 @@ class YouXi(Widget):
 
     def jian_ce_qu_yu(self):
         if self.dang_qian_cj == "map":
-            if self.dang_qian_dt == 1 and self.wan_jia_x < GUA_JI_CHI_ZD:
-                qy = "挂机池"
+            if self.dang_qian_dt == 1 and self.wan_jia_x < GUA_JI_CHI_ZD: qy = "挂机池"
             else:
                 qy = ""
                 for dy in self.dang_qian_dy_dian:
-                    if abs(self.wan_jia_x - dy["x"]) < 40:
-                        qy = dy["ming_cheng"]
-                        break
-            if qy and qy != self.shang_ci_qy:
-                self.shang_ci_qy = qy
-                self.xian_shi_zi_mu(qy)
-            elif not qy:
-                self.shang_ci_qy = ""
+                    if abs(self.wan_jia_x - dy["x"]) < 40: qy = dy["ming_cheng"]; break
+            if qy and qy != self.shang_ci_qy: self.shang_ci_qy = qy; self.xian_shi_zi_mu(qy)
+            elif not qy: self.shang_ci_qy = ""
         elif self.dang_qian_cj == "fuben1":
-            if "副本1" != self.shang_ci_qy:
-                self.shang_ci_qy = "副本1"
-                self.xian_shi_zi_mu("副本1")
+            if "副本1" != self.shang_ci_qy: self.shang_ci_qy = "副本1"; self.xian_shi_zi_mu("副本1")
         elif self.dang_qian_cj == "fuben2":
-            if "副本2" != self.shang_ci_qy:
-                self.shang_ci_qy = "副本2"
-                self.xian_shi_zi_mu("副本2")
+            if "副本2" != self.shang_ci_qy: self.shang_ci_qy = "副本2"; self.xian_shi_zi_mu("副本2")
 
     def jian_ce_cai_dan(self):
         if (self.dang_qian_cj == "map" and self.dang_qian_dt == 6 and abs(self.wan_jia_x - 1200) < 40):
             if "under" in self.shu_ru_hc.lower():
-                if self.yin_xiao_niu:
-                    self.yin_xiao_niu.play()
-                self.xian_shi_zi_mu("彩蛋触发：牛逼！")
-                self.shu_ru_hc = ""
+                if self.yin_xiao_niu: self.yin_xiao_niu.play()
+                self.xian_shi_zi_mu("彩蛋触发：牛逼！"); self.shu_ru_hc = ""
         if (self.dang_qian_cj == "map" and self.dang_qian_dt == 7 and abs(self.wan_jia_x - 1600) < 40):
             if "lisan" in self.shu_ru_hc.lower():
-                if self.yin_xiao_sha:
-                    self.yin_xiao_sha.play()
-                self.xian_shi_zi_mu("彩蛋触发：傻逼！")
-                self.shu_ru_hc = ""
+                if self.yin_xiao_sha: self.yin_xiao_sha.play()
+                self.xian_shi_zi_mu("彩蛋触发：傻逼！"); self.shu_ru_hc = ""
 
     def geng_xin(self, shi_jian_dt):
         self.she_xiang_x = self.wan_jia_x - PING_MU_KD // 2
-        if self.she_xiang_x < -500:
-            self.she_xiang_x = -500
-        if self.she_xiang_x > 2500:
-            self.she_xiang_x = 2500
+        if self.she_xiang_x < -500: self.she_xiang_x = -500
+        if self.she_xiang_x > 2500: self.she_xiang_x = 2500
         if self.zi_mu_djs > 0:
             self.zi_mu_djs -= shi_jian_dt
-            if self.zi_mu_djs <= 0:
-                self.zi_mu_wb = ""
+            if self.zi_mu_djs <= 0: self.zi_mu_wb = ""
         if self.shu_ru_djs > 0:
             self.shu_ru_djs -= shi_jian_dt
-            if self.shu_ru_djs <= 0:
-                self.shu_ru_hc = ""
+            if self.shu_ru_djs <= 0: self.shu_ru_hc = ""
         if (self.dang_qian_cj == "map" and self.dang_qian_dt == 1 and self.wan_jia_x < GUA_JI_CHI_ZD):
             self.gua_ji_jss += shi_jian_dt
             if self.gua_ji_jss >= 1.0:
                 self.gua_ji_jss -= 1.0
                 jia_cheng = int(self.zhan_li * 0.0003 * self.lun_hui_jc)
-                if jia_cheng < 1:
-                    jia_cheng = 1
+                if jia_cheng < 1: jia_cheng = 1
                 self.zhan_li += jia_cheng
         if self.dang_qian_cj == "fuben1":
             self.bei_lv_dan_jss += shi_jian_dt
@@ -699,47 +623,39 @@ class YouXi(Widget):
                 self.lun_hui_yc = True
                 self.you_xi_zt = "lunhuixr"
 
-    # ==================== 绘制主入口（带缩放） ====================
     def hui_hua(self):
-        self.canvas.clear()
+        # 核心重构：只清空动态绘制的 Group，而不是清空整个画布
+        self.draw_group.clear()
         scale, offset_x, offset_y = self._huo_qu_suo_fang()
 
-        with self.canvas:
-            PushMatrix()
-            Translate(offset_x, offset_y, 0)
-            Scale(scale, scale, 1)
+        self.draw_group.add(PushMatrix())
+        self.draw_group.add(Translate(offset_x, offset_y, 0))
+        self.draw_group.add(Scale(scale, scale, 1))
 
-            Color(0, 0, 0, 1)
-            Rectangle(pos=(0, 0), size=(PING_MU_KD, PING_MU_GD))
+        self.draw_group.add(Color(0, 0, 0, 1))
+        self.draw_group.add(Rectangle(pos=(0, 0), size=(PING_MU_KD, PING_MU_GD)))
 
-            if self.you_xi_zt == "youxi":
-                self.hui_hua_di_mian()
-                self.hui_hua_dan_yao_dian()
-                self.hui_hua_gua_ji_chi()
-                self.hui_hua_yi_sheng_dan()
-                self.hui_hua_wan_jia()
-                self.hui_hua_zhuang_tai_lan()
-                self.hui_hua_an_niu()
-                self.hui_hua_di_bu_an_niu()
-                self.hui_hua_zi_mu()
-            elif self.you_xi_zt == "dituxz":
-                self.hui_hua_di_tu_xz()
-            elif self.you_xi_zt == "fubenxz":
-                self.hui_hua_fu_ben_xz()
-            elif self.you_xi_zt == "jiaocheng":
-                self.hui_hua_jiao_cheng()
-            elif self.you_xi_zt == "lunhuixr":
-                self.hui_hua_lun_hui_que_ren()
+        if self.you_xi_zt == "youxi":
+            self.hui_hua_di_mian()
+            self.hui_hua_dan_yao_dian()
+            self.hui_hua_gua_ji_chi()
+            self.hui_hua_yi_sheng_dan()
+            self.hui_hua_wan_jia()
+            self.hui_hua_zhuang_tai_lan()
+            self.hui_hua_an_niu()
+            self.hui_hua_di_bu_an_niu()
+            self.hui_hua_zi_mu()
+        elif self.you_xi_zt == "dituxz": self.hui_hua_di_tu_xz()
+        elif self.you_xi_zt == "fubenxz": self.hui_hua_fu_ben_xz()
+        elif self.you_xi_zt == "jiaocheng": self.hui_hua_jiao_cheng()
+        elif self.you_xi_zt == "lunhuixr": self.hui_hua_lun_hui_que_ren()
 
-            PopMatrix()
+        self.draw_group.add(PopMatrix())
 
-    # ==================== 触摸事件（带反向映射） ====================
     def on_touch_down(self, touch):
         if self.collide_point(*touch.pos):
             scale, offset_x, offset_y = self._huo_qu_suo_fang()
-            if scale <= 0:
-                return True
-            # 把屏幕坐标反向映射回 1200x600 的逻辑坐标
+            if scale <= 0: return True
             game_x = (touch.x - self.x - offset_x) / scale
             game_y = PING_MU_GD - (touch.y - self.y - offset_y) / scale
 
@@ -767,109 +683,67 @@ class YouXi(Widget):
     def chu_li_shu_biao_dian_ji(self, x, y):
         if self.you_xi_zt == "youxi":
             an_niu = self.jian_ce_an_niu(x, y)
-            if an_niu == "ditu":
-                self.you_xi_zt = "dituxz"
-            elif an_niu == "fuben":
-                self.you_xi_zt = "fubenxz"
-            elif an_niu == "guaji":
-                self.gua_ji()
-            elif an_niu == "huicheng":
-                self.hui_cheng()
-            elif an_niu == "jiaocheng":
-                self.you_xi_zt = "jiaocheng"
-            elif an_niu == "cundang":
-                self.baocun()
-                self.xian_shi_zi_mu("游戏已保存！")
-            elif an_niu == "jianpan":
-                self.diao_chu_jian_pan()
+            if an_niu == "ditu": self.you_xi_zt = "dituxz"
+            elif an_niu == "fuben": self.you_xi_zt = "fubenxz"
+            elif an_niu == "guaji": self.gua_ji()
+            elif an_niu == "huicheng": self.hui_cheng()
+            elif an_niu == "jiaocheng": self.you_xi_zt = "jiaocheng"
+            elif an_niu == "cundang": self.baocun(); self.xian_shi_zi_mu("游戏已保存！")
+            elif an_niu == "jianpan": self.diao_chu_jian_pan()
         elif self.you_xi_zt == "dituxz":
             for i in range(10):
-                hang = i // 5
-                lie = i % 5
-                ax = 200 + lie * 160
-                ay = 150 + hang * 150
+                hang = i // 5; lie = i % 5
+                ax = 200 + lie * 160; ay = 150 + hang * 150
                 if ax <= x <= ax + 140 and ay <= y <= ay + 80:
-                    self.jin_ru_di_tu(i + 1)
-                    self.you_xi_zt = "youxi"
-                    return
-            if PING_MU_KD // 2 - 50 <= x <= PING_MU_KD // 2 + 50 and 500 <= y <= 540:
-                self.you_xi_zt = "youxi"
+                    self.jin_ru_di_tu(i + 1); self.you_xi_zt = "youxi"; return
+            if PING_MU_KD // 2 - 50 <= x <= PING_MU_KD // 2 + 50 and 500 <= y <= 540: self.you_xi_zt = "youxi"
         elif self.you_xi_zt == "fubenxz":
-            if 300 <= x <= 550 and 150 <= y <= 250:
-                self.jin_ru_fu_ben(1)
-                self.you_xi_zt = "youxi"
-            elif 650 <= x <= 900 and 150 <= y <= 250:
-                self.jin_ru_fu_ben(2)
-                self.you_xi_zt = "youxi"
-            elif PING_MU_KD // 2 - 50 <= x <= PING_MU_KD // 2 + 50 and 500 <= y <= 540:
-                self.you_xi_zt = "youxi"
+            if 300 <= x <= 550 and 150 <= y <= 250: self.jin_ru_fu_ben(1); self.you_xi_zt = "youxi"
+            elif 650 <= x <= 900 and 150 <= y <= 250: self.jin_ru_fu_ben(2); self.you_xi_zt = "youxi"
+            elif PING_MU_KD // 2 - 50 <= x <= PING_MU_KD // 2 + 50 and 500 <= y <= 540: self.you_xi_zt = "youxi"
         elif self.you_xi_zt == "jiaocheng":
-            if PING_MU_KD // 2 - 50 <= x <= PING_MU_KD // 2 + 50 and 540 <= y <= 580:
-                self.you_xi_zt = "youxi"
+            if PING_MU_KD // 2 - 50 <= x <= PING_MU_KD // 2 + 50 and 540 <= y <= 580: self.you_xi_zt = "youxi"
         elif self.you_xi_zt == "lunhuixr":
-            if 350 <= x <= 470 and 380 <= y <= 420:
-                self.lun_hui()
+            if 350 <= x <= 470 and 380 <= y <= 420: self.lun_hui()
             elif 730 <= x <= 850 and 380 <= y <= 420:
-                self.you_xi_zt = "youxi"
-                self.lun_hui_yc = False
-                self.kong_ge_an_x = False
+                self.you_xi_zt = "youxi"; self.lun_hui_yc = False; self.kong_ge_an_x = False
 
     def chu_li_an_jian_an_x(self, jian):
         if jian == JIAN_KONG_GE:
             if not self.kong_ge_an_x:
-                self.kong_ge_an_x = True
-                self.kong_ge_an_sj = time.time()
-                self.lun_hui_yc = False
+                self.kong_ge_an_x = True; self.kong_ge_an_sj = time.time(); self.lun_hui_yc = False
         if self.you_xi_zt == "youxi":
             if 97 <= jian <= 122 or 65 <= jian <= 90:
-                self.shu_ru_hc += chr(jian)
-                self.shu_ru_djs = 3.0
-                if len(self.shu_ru_hc) > 20:
-                    self.shu_ru_hc = self.shu_ru_hc[-20:]
+                self.shu_ru_hc += chr(jian); self.shu_ru_djs = 3.0
+                if len(self.shu_ru_hc) > 20: self.shu_ru_hc = self.shu_ru_hc[-20:]
 
     def chu_li_an_jian_tai_qi(self, jian):
-        if self.you_xi_zt != "youxi":
-            return
+        if self.you_xi_zt != "youxi": return
         if jian == JIAN_KONG_GE:
             an_shi_duan = time.time() - self.kong_ge_an_sj
             self.kong_ge_an_x = False
             if an_shi_duan < LUN_HUI_AN_MS:
-                if self.dang_qian_cj == "map":
-                    self.sheng_cheng_dan_yao()
-                elif self.dang_qian_cj == "fuben2":
-                    self.sheng_cheng_wu_ji_dan()
-        elif jian == JIAN_Z:
-            self.chi_suo_you_dan()
-        elif jian == JIAN_X:
-            self.chi_bei_lv_dan()
+                if self.dang_qian_cj == "map": self.sheng_cheng_dan_yao()
+                elif self.dang_qian_cj == "fuben2": self.sheng_cheng_wu_ji_dan()
+        elif jian == JIAN_Z: self.chi_suo_you_dan()
+        elif jian == JIAN_X: self.chi_bei_lv_dan()
         elif jian == JIAN_Y:
-            if self.you_xi_zt == "lunhuixr":
-                self.lun_hui()
+            if self.you_xi_zt == "lunhuixr": self.lun_hui()
         elif jian == JIAN_N:
             if self.you_xi_zt == "lunhuixr":
-                self.you_xi_zt = "youxi"
-                self.lun_hui_yc = False
-                self.kong_ge_an_x = False
+                self.you_xi_zt = "youxi"; self.lun_hui_yc = False; self.kong_ge_an_x = False
 
     def _kivy_an_jian_an_x(self, *args):
-        if len(args) < 2:
-            return
-        jian = args[1]
-        self.an_jian_zt[jian] = True
-        self.chu_li_an_jian_an_x(jian)
+        if len(args) < 2: return
+        jian = args[1]; self.an_jian_zt[jian] = True; self.chu_li_an_jian_an_x(jian)
 
     def _kivy_an_jian_tai_qi(self, *args):
-        if len(args) < 2:
-            return
-        jian = args[1]
-        self.an_jian_zt[jian] = False
-        self.chu_li_an_jian_tai_qi(jian)
+        if len(args) < 2: return
+        jian = args[1]; self.an_jian_zt[jian] = False; self.chu_li_an_jian_tai_qi(jian)
 
     def _kivy_guan_bi(self, *args):
-        self.baocun()
-        return False
+        self.baocun(); return False
 
-    # ==================== 存档 ====================
     def baocun(self):
         cundang_data = {
             'zhan_li': self.zhan_li, 'lun_hui_cs': self.lun_hui_cs, 'diao_luo_bl': self.diao_luo_bl,
@@ -879,38 +753,23 @@ class YouXi(Widget):
             'bei_lv_dan_jss': self.bei_lv_dan_jss, 'gua_ji_jss': self.gua_ji_jss
         }
         try:
-            with open(CUN_DANG_WJ, 'wb') as f:
-                pickle.dump(cundang_data, f)
-        except Exception:
-            pass
+            with open(CUN_DANG_WJ, 'wb') as f: pickle.dump(cundang_data, f)
+        except Exception: pass
 
     def jia_zai_cun_dang(self):
-        if not os.path.exists(CUN_DANG_WJ):
-            return
+        if not os.path.exists(CUN_DANG_WJ): return
         try:
-            with open(CUN_DANG_WJ, 'rb') as f:
-                data = pickle.load(f)
-            self.zhan_li = data.get('zhan_li', 3000)
-            self.lun_hui_cs = data.get('lun_hui_cs', 0)
-            self.diao_luo_bl = data.get('diao_luo_bl', 1)
-            self.lun_hui_jc = data.get('lun_hui_jc', 1.0)
-            self.wan_jia_x = data.get('wan_jia_x', DAN_YAO_KS)
-            self.dang_qian_dt = data.get('dang_qian_dt', 1)
+            with open(CUN_DANG_WJ, 'rb') as f: data = pickle.load(f)
+            self.zhan_li = data.get('zhan_li', 3000); self.lun_hui_cs = data.get('lun_hui_cs', 0)
+            self.diao_luo_bl = data.get('diao_luo_bl', 1); self.lun_hui_jc = data.get('lun_hui_jc', 1.0)
+            self.wan_jia_x = data.get('wan_jia_x', DAN_YAO_KS); self.dang_qian_dt = data.get('dang_qian_dt', 1)
             self.dang_qian_cj = data.get('dang_qian_cj', 'map')
             self.di_tu_dan_yao = data.get('di_tu_dan_yao', [[] for _ in range(10)])
-            self.bei_lv_dan_lb = data.get('bei_lv_dan_lb', [])
-            self.wu_ji_dan_lb = data.get('wu_ji_dan_lb', [])
-            self.bei_lv_dan_jss = data.get('bei_lv_dan_jss', 0)
-            self.gua_ji_jss = data.get('gua_ji_jss', 0)
-            self.shang_ci_qy = ""
-            self.zi_mu_wb = ""
-            self.zi_mu_djs = 0
-            self.shu_ru_hc = ""
-            self.shu_ru_djs = 0
-        except Exception:
-            pass
+            self.bei_lv_dan_lb = data.get('bei_lv_dan_lb', []); self.wu_ji_dan_lb = data.get('wu_ji_dan_lb', [])
+            self.bei_lv_dan_jss = data.get('bei_lv_dan_jss', 0); self.gua_ji_jss = data.get('gua_ji_jss', 0)
+            self.shang_ci_qy = ""; self.zi_mu_wb = ""; self.zi_mu_djs = 0; self.shu_ru_hc = ""; self.shu_ru_djs = 0
+        except Exception: pass
 
-    # ==================== 主循环 ====================
     def yun_xing(self):
         Window.bind(on_key_down=self._kivy_an_jian_an_x)
         Window.bind(on_key_up=self._kivy_an_jian_tai_qi)
@@ -919,20 +778,14 @@ class YouXi(Widget):
 
     def mei_zhen_geng_xin(self, shi_jian_dt):
         if self.you_xi_zt == "youxi":
-            if self.an_jian_zt.get(JIAN_LEFT):
-                self.wan_jia_x -= YD_SU_DU
-            if self.an_jian_zt.get(JIAN_RIGHT):
-                self.wan_jia_x += YD_SU_DU
+            if self.an_jian_zt.get(JIAN_LEFT): self.wan_jia_x -= YD_SU_DU
+            if self.an_jian_zt.get(JIAN_RIGHT): self.wan_jia_x += YD_SU_DU
             if self.dang_qian_cj == "map":
-                if self.wan_jia_x < -450:
-                    self.wan_jia_x = -450
-                if self.wan_jia_x > 2450:
-                    self.wan_jia_x = 2450
+                if self.wan_jia_x < -450: self.wan_jia_x = -450
+                if self.wan_jia_x > 2450: self.wan_jia_x = 2450
             else:
-                if self.wan_jia_x < -450:
-                    self.wan_jia_x = -450
-                if self.wan_jia_x > 1450:
-                    self.wan_jia_x = 1450
+                if self.wan_jia_x < -450: self.wan_jia_x = -450
+                if self.wan_jia_x > 1450: self.wan_jia_x = 1450
         self.geng_xin(shi_jian_dt)
         self.hui_hua()
 
@@ -945,6 +798,16 @@ class ChiDanXiuXianApp(App):
         root.add_widget(self.you_xi)
         self.you_xi.yun_xing()
         return root
+
+    # 根据大佬建议：修复安卓切后台后再切回来，导致长按误触发轮回的Bug
+    def on_pause(self):
+        if hasattr(self, 'you_xi'):
+            self.you_xi.kong_ge_an_x = False
+            self.you_xi.an_jian_zt.clear()
+        return True
+
+    def on_resume(self):
+        pass
 
 if __name__ == "__main__":
     ChiDanXiuXianApp().run()
