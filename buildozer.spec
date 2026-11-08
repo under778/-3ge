@@ -20,4 +20,4 @@ android.ndk = 25b
 android.archs = arm64-v8a
 android.accept_sdk_license = True
 
-p4a.branch = v2023.01.28
+p4a.branch = develop
