@@ -29,17 +29,26 @@ jobs:
       run: |
         pip install --upgrade pip
         pip install buildozer cython==0.29.36
-    - name: Clean Buildozer Cache
-      run: |
-        rm -rf .buildozer
-        rm -rf ~/.buildozer
+
     - name: Build with Buildozer
       env:
-        # 关键：强制清空云端自带的 NDK 环境变量，让 P4A 用自己下载的
         ANDROID_NDK_HOME: ""
         ANDROID_NDK_ROOT: ""
       run: |
-        yes | buildozer android debug
+        # 第一次尝试编译。如果失败，自动修改 avdmanager 的 bug，然后重试。
+        yes | buildozer android debug || (
+          echo "========================================="
+          echo "遇到 avdmanager bug，正在自动打补丁..."
+          echo "========================================="
+          FILE=$(find ~/.buildozer -name "build.py" -path "*pythonforandroid*" | head -n 1)
+          if [ -f "$FILE" ]; then
+            # 删掉引起报错的 .stdout.decode('utf-8')
+            sed -i "s/avdmanager('list', 'target').stdout.decode('utf-8').split('\\\\n')/avdmanager('list', 'target').split('\\\\n')/" "$FILE"
+            echo "补丁已应用到: $FILE"
+          fi
+          echo "开始重新编译..."
+          yes | buildozer android debug
+        )
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
