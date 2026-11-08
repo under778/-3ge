@@ -8,7 +8,7 @@ source.include_exts = py,png,jpg,kv,atlas,ttf,wav
 version = 1.0
 
 # 坚决不加 ffpyplayer，加了必打包失败。先用纯 Kivy 跑通画面
-requirements = python3,kivy
+requirements = python3,kivy==2.2.1
 
 # 绝对必须锁死横屏，否则你的按钮坐标全部失效
 orientation = landscape
