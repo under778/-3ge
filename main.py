@@ -1,17 +1,19 @@
 # -*- coding: utf-8 -*-
+
 import os
 import sys
 import random
 import time
 import pickle
 
-# 注意：去掉了 KIVY_NO_CONSOLELOG，方便你抓日志
+# ---- 关闭 Kivy 控制台日志 ----
+os.environ['KIVY_NO_CONSOLELOG'] = '1'
 
 from kivy.app import App
 from kivy.core.window import Window
 from kivy.uix.widget import Widget
 from kivy.uix.floatlayout import FloatLayout
-from kivy.graphics import Color, Rectangle, Ellipse, Line, PushMatrix, PopMatrix, Scale, Translate, InstructionGroup
+from kivy.graphics import Color, Rectangle, Ellipse, Line
 from kivy.core.text import Label as CoreLabel, LabelBase
 from kivy.core.audio import SoundLoader
 from kivy.clock import Clock
@@ -26,19 +28,24 @@ from kivy.uix.button import Button
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 def get_path(filename):
+    """优先在APK内查找资源，找不到则回退到脚本目录"""
     p = resource_find(filename)
     if p:
         return p
     return os.path.join(BASE_DIR, filename)
 
 def cun_dang_lu_jing():
-    # 采用大佬建议：使用 Kivy 官方推荐的应用私有目录
-    try:
-        app = App.get_running_app()
-        if app:
-            return os.path.join(app.user_data_dir, 'cundang.pkl')
-    except Exception:
-        pass
+    """获取可写的存档路径，避免安卓权限问题"""
+    if hasattr(sys, 'getandroidapilevel') or 'ANDROID_ARGUMENT' in os.environ:
+        # 安卓环境：使用应用私有目录
+        private_dir = os.environ.get('ANDROID_PRIVATE', '')
+        if private_dir and os.path.isdir(private_dir):
+            return os.path.join(private_dir, 'cundang.pkl')
+        # 退而求其次，用用户目录
+        try:
+            return os.path.join(os.path.expanduser('~'), 'cundang.pkl')
+        except Exception:
+            pass
     return 'cundang.pkl'
 
 # ==================== 常量定义 ====================
@@ -51,8 +58,10 @@ YD_SU_DU = 5
 ZHEN_LV = 60
 GUA_JI_CHI_ZD = 200
 LUN_HUI_AN_MS = 10
+CUN_DANG_WJ = cun_dang_lu_jing()
 LUN_HUI_JI_CHU_ZL = 5000
 
+# 按键码常量
 JIAN_KONG_GE = 32
 JIAN_Z = 122
 JIAN_X = 120
@@ -61,6 +70,7 @@ JIAN_N = 110
 JIAN_LEFT = 276
 JIAN_RIGHT = 275
 
+# 颜色定义
 YS_BAI = (255, 255, 255)
 YS_HEI = (0, 0, 0)
 YS_HONG = (255, 0, 0)
@@ -75,6 +85,7 @@ YS_SHEN_LV = (0, 128, 0)
 YS_TU = (139, 69, 19)
 YS_JIN = (255, 215, 0)
 
+# 中文数字单位
 DAN_WEI_LB = ['', '万', '亿', '兆', '京', '垓', '秭', '穰', '沟', '涧',
               '正', '载', '极', '恒河沙', '阿僧祇', '那由他', '不可思议',
               '无量', '大数', '无敌']
@@ -124,7 +135,9 @@ def ji_suan_dan_yao_jc(di_tu_bian_hao, jie_shu):
         jia_cheng *= 20 ** (di_tu_bian_hao - 1)
     return jia_cheng
 
+# ==================== 字体注册（修复乱码） ====================
 def zhu_ce_zhong_wen_zi_ti():
+    """加载APK内自带的中文字体"""
     font_path = get_path("game_font.ttf")
     if os.path.exists(font_path):
         try:
@@ -140,24 +153,28 @@ ZI_TI_MING = ZHONG_WEN_ZT if ZHONG_WEN_ZT else "Roboto"
 def zhuan_yan_se(yan_se):
     if len(yan_se) == 3:
         return (yan_se[0] / 255.0, yan_se[1] / 255.0, yan_se[2] / 255.0, 1.0)
-    return (yan_se[0] / 255.0, yan_se[1] / 255.0, yan_se[2] / 255.0, yan_se[3] / 255.0)
+    return (yan_se[0] / 255.0, yan_se[1] / 255.0,
+            yan_se[2] / 255.0, yan_se[3] / 255.0)
 
 # ==================== 游戏主类 ====================
 class YouXi(Widget):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.size_hint = (1, 1)
+        self.size_hint = (None, None)
+        self.size = (PING_MU_KD, PING_MU_GD)
 
         self.zi_ti_da = 30
         self.zi_ti_zhong = 20
         self.zi_ti_xiao = 14
         self.zi_ti_jiao_cheng = 16
 
+        # 加载玩家图片（使用 get_path 和英文名）
         try:
             self.wan_jia_tp = CoreImage(get_path("player.png")).texture
         except Exception:
             self.wan_jia_tp = None
 
+        # 背景音乐（使用 get_path 和英文名）
         self.yin_yue = None
         try:
             self.yin_yue = SoundLoader.load(get_path("bgm.wav"))
@@ -166,8 +183,9 @@ class YouXi(Widget):
                 self.yin_yue.volume = 0.3
                 self.yin_yue.play()
         except Exception:
-            pass
+            self.yin_yue = None
 
+        # 音效
         try:
             self.yin_xiao_niu = SoundLoader.load(get_path("niubi.wav"))
         except Exception:
@@ -176,7 +194,13 @@ class YouXi(Widget):
             self.yin_xiao_sha = SoundLoader.load(get_path("shabi.wav"))
         except Exception:
             self.yin_xiao_sha = None
+        try:
+            self.yin_xiao_pian = SoundLoader.load(get_path("pian.wav"))
+        except Exception:
+            self.yin_xiao_pian = None
 
+
+        # 玩家属性
         self.zhan_li = 3000
         self.lun_hui_cs = 0
         self.diao_luo_bl = 1
@@ -206,25 +230,16 @@ class YouXi(Widget):
         self.an_xia_de_di_bu_an = None
         self.jian_pan_tan_chuang = None
 
-        # 核心改造：用 InstructionGroup 代替 canvas.clear()
-        self.draw_group = InstructionGroup()
-        self.canvas.add(self.draw_group)
-
         self.jia_zai_cun_dang()
         self.dang_qian_dy_dian = self.sheng_cheng_dy_dian(self.dang_qian_dt)
 
-    def _huo_qu_suo_fang(self):
-        if self.width <= 0 or self.height <= 0:
-            return 1.0, 0, 0
-        scale = min(self.width / PING_MU_KD, self.height / PING_MU_GD)
-        offset_x = (self.width - PING_MU_KD * scale) / 2
-        offset_y = (self.height - PING_MU_GD * scale) / 2
-        return scale, offset_x, offset_y
-
+    # ==================== 绘制辅助函数 ====================
     def _huo_qu_wen_ben_wen_li(self, wen_ben, zi_ti, yan_se):
         guan_jian = (wen_ben, zi_ti, yan_se)
         if guan_jian not in self._wen_ben_huan_cun:
-            cl = CoreLabel(text=wen_ben, font_size=zi_ti, font_name=ZI_TI_MING, color=zhuan_yan_se(yan_se))
+            cl = CoreLabel(text=wen_ben, font_size=zi_ti,
+                           font_name=ZI_TI_MING,
+                           color=zhuan_yan_se(yan_se))
             cl.refresh()
             self._wen_ben_huan_cun[guan_jian] = cl
         return self._wen_ben_huan_cun[guan_jian].texture
@@ -235,26 +250,28 @@ class YouXi(Widget):
         if ju_zhong:
             x = x - kuan // 2
         ky = PING_MU_GD - y - tex.height
-        self.draw_group.add(Color(1, 1, 1, 1))
-        self.draw_group.add(Rectangle(texture=tex, pos=(x, ky), size=tex.size))
+        Color(1, 1, 1, 1)
+        Rectangle(texture=tex, pos=(x, ky), size=tex.size)
         return kuan
 
     def _hua_ju_xing(self, yan_se, x, y, kuan, gao, bian_kuan=0, bian_yan_se=None):
         ky = PING_MU_GD - y - gao
-        self.draw_group.add(Color(*zhuan_yan_se(yan_se)))
-        self.draw_group.add(Rectangle(pos=(x, ky), size=(kuan, gao)))
+        Color(*zhuan_yan_se(yan_se))
+        Rectangle(pos=(x, ky), size=(kuan, gao))
         if bian_kuan > 0:
-            self.draw_group.add(Color(*zhuan_yan_se(bian_yan_se if bian_yan_se else YS_BAI)))
-            self.draw_group.add(Line(rectangle=(x, ky, kuan, gao), width=bian_kuan))
+            Color(*zhuan_yan_se(bian_yan_se if bian_yan_se else YS_BAI))
+            Line(rectangle=(x, ky, kuan, gao), width=bian_kuan)
 
     def _hua_yuan(self, yan_se, cx, cy, ban_jing):
-        self.draw_group.add(Color(*zhuan_yan_se(yan_se)))
-        self.draw_group.add(Ellipse(pos=(cx - ban_jing, PING_MU_GD - cy - ban_jing), size=(ban_jing * 2, ban_jing * 2)))
+        Color(*zhuan_yan_se(yan_se))
+        Ellipse(pos=(cx - ban_jing, PING_MU_GD - cy - ban_jing),
+                size=(ban_jing * 2, ban_jing * 2))
 
     def _hua_xian(self, yan_se, x1, y1, x2, y2, kuan=1):
-        self.draw_group.add(Color(*zhuan_yan_se(yan_se)))
-        self.draw_group.add(Line(points=[x1, PING_MU_GD - y1, x2, PING_MU_GD - y2], width=kuan))
+        Color(*zhuan_yan_se(yan_se))
+        Line(points=[x1, PING_MU_GD - y1, x2, PING_MU_GD - y2], width=kuan)
 
+    # ==================== 原有逻辑函数 ====================
     def sheng_cheng_dy_dian(self, di_tu_bian_hao):
         dy_dian = []
         for jie_shu in range(1, 11):
@@ -270,9 +287,10 @@ class YouXi(Widget):
 
     def jian_ce_an_niu(self, shu_biao_x, shu_biao_y):
         an_niu_wz = [
-            ("ditu", 10, 100, 80, 35), ("fuben", 10, 145, 80, 35), ("guaji", 10, 190, 80, 35),
-            ("huicheng", 10, 235, 80, 35), ("jiaocheng", 10, 280, 80, 35),
-            ("cundang", 10, 325, 80, 35), ("jianpan", 10, 370, 80, 35),
+            ("ditu", 10, 100, 80, 35), ("fuben", 10, 145, 80, 35),
+            ("guaji", 10, 190, 80, 35), ("huicheng", 10, 235, 80, 35),
+            ("jiaocheng", 10, 280, 80, 35), ("cundang", 10, 325, 80, 35),
+            ("jianpan", 10, 370, 80, 35),
         ]
         for ming, ax, ay, ak, ag in an_niu_wz:
             if ax <= shu_biao_x <= ax + ak and ay <= shu_biao_y <= ay + ag:
@@ -336,14 +354,17 @@ class YouXi(Widget):
         an_niu_bu_ju.add_widget(que_ding_an)
         an_niu_bu_ju.add_widget(qu_xiao_an)
         bu_ju.add_widget(an_niu_bu_ju)
-        tan_chuang = Popup(title='键盘输入', content=bu_ju, size_hint=(0.45, 0.35), title_size=20)
-        try: tan_chuang.title_font = ZI_TI_MING
-        except Exception: pass
+        tan_chuang = Popup(title='键盘输入（用于触发彩蛋）', content=bu_ju, size_hint=(0.45, 0.35), title_size=20)
+        try:
+            tan_chuang.title_font = ZI_TI_MING
+        except Exception:
+            pass
         self.jian_pan_tan_chuang = tan_chuang
 
         def _que_ding(*args):
             for zi_fu in shu_ru_kuang.text:
-                if zi_fu.isalpha(): self.chu_li_an_jian_an_x(ord(zi_fu.lower()))
+                if zi_fu.isalpha():
+                    self.chu_li_an_jian_an_x(ord(zi_fu.lower()))
             tan_chuang.dismiss()
 
         que_ding_an.bind(on_release=_que_ding)
@@ -407,8 +428,8 @@ class YouXi(Widget):
     def hui_hua_wan_jia(self):
         sx = self.wan_jia_x - self.she_xiang_x
         if self.wan_jia_tp is not None:
-            self.draw_group.add(Color(1, 1, 1, 1))
-            self.draw_group.add(Rectangle(texture=self.wan_jia_tp, pos=(sx, PING_MU_GD - self.wan_jia_y - 50), size=(40, 50)))
+            Color(1, 1, 1, 1)
+            Rectangle(texture=self.wan_jia_tp, pos=(sx, PING_MU_GD - self.wan_jia_y - 50), size=(40, 50))
         else:
             self._hua_ju_xing(YS_LAN, sx, self.wan_jia_y, 40, 50)
 
@@ -472,13 +493,16 @@ class YouXi(Widget):
         self._hua_wen_ben(f"当前轮回数: {self.lun_hui_cs}", 300, 250, self.zi_ti_zhong, YS_BAI)
         self._hua_wen_ben(f"所需战力: {shu_zi_zhuan_huan(suo_xu)}", 300, 280, self.zi_ti_zhong, YS_BAI)
         self._hua_wen_ben(f"当前战力: {shu_zi_zhuan_huan(self.zhan_li)}", 300, 310, self.zi_ti_zhong, YS_BAI)
-        if self.zhan_li >= suo_xu: self._hua_wen_ben("√ 战力充足，可以轮回！", 300, 340, self.zi_ti_zhong, YS_LV)
-        else: self._hua_wen_ben("× 战力不足，无法轮回！", 300, 340, self.zi_ti_zhong, YS_HONG)
+        if self.zhan_li >= suo_xu:
+            self._hua_wen_ben("√ 战力充足，可以轮回！", 300, 340, self.zi_ti_zhong, YS_LV)
+        else:
+            self._hua_wen_ben("× 战力不足，无法轮回！", 300, 340, self.zi_ti_zhong, YS_HONG)
         self._hua_ju_xing(YS_LV, 350, 380, 120, 40, 2, YS_BAI)
         self._hua_wen_ben("确认(Y)", 410, 390, self.zi_ti_zhong, YS_BAI, ju_zhong=True)
         self._hua_ju_xing(YS_HONG, 730, 380, 120, 40, 2, YS_BAI)
         self._hua_wen_ben("取消(N)", 790, 390, self.zi_ti_zhong, YS_BAI, ju_zhong=True)
 
+    # ==================== 场景切换 ====================
     def jin_ru_di_tu(self, di_tu_bian_hao):
         self.dang_qian_dt = di_tu_bian_hao
         self.dang_qian_cj = "map"
@@ -489,9 +513,13 @@ class YouXi(Widget):
 
     def jin_ru_fu_ben(self, fu_ben_bian_hao):
         if fu_ben_bian_hao == 1:
-            self.dang_qian_cj = "fuben1"; self.wan_jia_x = 200; self.xian_shi_zi_mu("进入副本1")
+            self.dang_qian_cj = "fuben1"
+            self.wan_jia_x = 200
+            self.xian_shi_zi_mu("进入副本1（倍率丹）")
         elif fu_ben_bian_hao == 2:
-            self.dang_qian_cj = "fuben2"; self.wan_jia_x = 200; self.xian_shi_zi_mu("进入副本2")
+            self.dang_qian_cj = "fuben2"
+            self.wan_jia_x = 200
+            self.xian_shi_zi_mu("进入副本2（无极魔丹）")
         self.shang_ci_qy = ""
 
     def gua_ji(self):
@@ -504,6 +532,7 @@ class YouXi(Widget):
         self.dang_qian_dy_dian = self.sheng_cheng_dy_dian(1); self.shang_ci_qy = ""
         self.xian_shi_zi_mu("回城")
 
+    # ==================== 丹药生成/食用 ====================
     def sheng_cheng_dan_yao(self):
         if self.dang_qian_cj != "map": return
         for dy in self.dang_qian_dy_dian:
@@ -516,7 +545,8 @@ class YouXi(Widget):
                             "ming_cheng": dy["ming_cheng"], "jia_cheng": dy["jia_cheng"], "lei_xing": "chang_gui"
                         })
                     self.xian_shi_zi_mu(f"生成{self.diao_luo_bl}个{dy['ming_cheng']}")
-                else: self.xian_shi_zi_mu(f"战力不足！")
+                else:
+                    self.xian_shi_zi_mu(f"战力不足！需要{shu_zi_zhuan_huan(suo_xu)}战力")
                 return
         self.xian_shi_zi_mu("不在丹药生成点附近")
 
@@ -570,6 +600,7 @@ class YouXi(Widget):
             self.xian_shi_zi_mu("战力不足或已达最大轮回次数！")
             self.you_xi_zt = "youxi"
 
+    # ==================== 区域/彩蛋检测 ====================
     def jian_ce_qu_yu(self):
         if self.dang_qian_cj == "map":
             if self.dang_qian_dt == 1 and self.wan_jia_x < GUA_JI_CHI_ZD: qy = "挂机池"
@@ -588,12 +619,26 @@ class YouXi(Widget):
         if (self.dang_qian_cj == "map" and self.dang_qian_dt == 6 and abs(self.wan_jia_x - 1200) < 40):
             if "under" in self.shu_ru_hc.lower():
                 if self.yin_xiao_niu: self.yin_xiao_niu.play()
-                self.xian_shi_zi_mu("彩蛋触发：牛逼！"); self.shu_ru_hc = ""
+                self.xian_shi_zi_mu("彩蛋触发：under");
+                self.shu_ru_hc = ""
+        if (self.dang_qian_cj == "map" and self.dang_qian_dt == 9 and abs(self.wan_jia_x - 200) < 40):
+            if "jibajiabi" in self.shu_ru_hc.lower():
+                if self.yin_xiao_pian: self.yin_xiao_pian.play()
+                self.xian_shi_zi_mu("最神秘彩蛋");
+                self.shu_ru_hc = ""
         if (self.dang_qian_cj == "map" and self.dang_qian_dt == 7 and abs(self.wan_jia_x - 1600) < 40):
-            if "lisan" in self.shu_ru_hc.lower():
-                if self.yin_xiao_sha: self.yin_xiao_sha.play()
-                self.xian_shi_zi_mu("彩蛋触发：傻逼！"); self.shu_ru_hc = ""
+            if "liwu" in self.shu_ru_hc.lower():
+                self.xian_shi_zi_mu("彩蛋触发了什么？")
+                self.shu_ru_hc = ""
 
+                # 直接用 Kivy 原生方式调用彩蛋，不要用 subprocess
+                try:
+                    import liwu
+                    liwu.xin_dong()
+                except Exception as e:
+                    print("彩蛋加载失败:", e)
+
+    # ==================== 游戏更新 ====================
     def geng_xin(self, shi_jian_dt):
         self.she_xiang_x = self.wan_jia_x - PING_MU_KD // 2
         if self.she_xiang_x < -500: self.she_xiang_x = -500
@@ -620,66 +665,30 @@ class YouXi(Widget):
         self.jian_ce_cai_dan()
         if self.kong_ge_an_x and not self.lun_hui_yc:
             if time.time() - self.kong_ge_an_sj >= LUN_HUI_AN_MS:
-                self.lun_hui_yc = True
-                self.you_xi_zt = "lunhuixr"
+                self.lun_hui_yc = True; self.you_xi_zt = "lunhuixr"
 
+    # ==================== 绘制主入口 ====================
     def hui_hua(self):
-        # 核心重构：只清空动态绘制的 Group，而不是清空整个画布
-        self.draw_group.clear()
-        scale, offset_x, offset_y = self._huo_qu_suo_fang()
+        self.canvas.clear()
+        with self.canvas:
+            Color(0, 0, 0, 1)
+            Rectangle(pos=(0, 0), size=(PING_MU_KD, PING_MU_GD))
+            if self.you_xi_zt == "youxi":
+                self.hui_hua_di_mian()
+                self.hui_hua_dan_yao_dian()
+                self.hui_hua_gua_ji_chi()
+                self.hui_hua_yi_sheng_dan()
+                self.hui_hua_wan_jia()
+                self.hui_hua_zhuang_tai_lan()
+                self.hui_hua_an_niu()
+                self.hui_hua_di_bu_an_niu()
+                self.hui_hua_zi_mu()
+            elif self.you_xi_zt == "dituxz": self.hui_hua_di_tu_xz()
+            elif self.you_xi_zt == "fubenxz": self.hui_hua_fu_ben_xz()
+            elif self.you_xi_zt == "jiaocheng": self.hui_hua_jiao_cheng()
+            elif self.you_xi_zt == "lunhuixr": self.hui_hua_lun_hui_que_ren()
 
-        self.draw_group.add(PushMatrix())
-        self.draw_group.add(Translate(offset_x, offset_y, 0))
-        self.draw_group.add(Scale(scale, scale, 1))
-
-        self.draw_group.add(Color(0, 0, 0, 1))
-        self.draw_group.add(Rectangle(pos=(0, 0), size=(PING_MU_KD, PING_MU_GD)))
-
-        if self.you_xi_zt == "youxi":
-            self.hui_hua_di_mian()
-            self.hui_hua_dan_yao_dian()
-            self.hui_hua_gua_ji_chi()
-            self.hui_hua_yi_sheng_dan()
-            self.hui_hua_wan_jia()
-            self.hui_hua_zhuang_tai_lan()
-            self.hui_hua_an_niu()
-            self.hui_hua_di_bu_an_niu()
-            self.hui_hua_zi_mu()
-        elif self.you_xi_zt == "dituxz": self.hui_hua_di_tu_xz()
-        elif self.you_xi_zt == "fubenxz": self.hui_hua_fu_ben_xz()
-        elif self.you_xi_zt == "jiaocheng": self.hui_hua_jiao_cheng()
-        elif self.you_xi_zt == "lunhuixr": self.hui_hua_lun_hui_que_ren()
-
-        self.draw_group.add(PopMatrix())
-
-    def on_touch_down(self, touch):
-        if self.collide_point(*touch.pos):
-            scale, offset_x, offset_y = self._huo_qu_suo_fang()
-            if scale <= 0: return True
-            game_x = (touch.x - self.x - offset_x) / scale
-            game_y = PING_MU_GD - (touch.y - self.y - offset_y) / scale
-
-            an_ming = self._jian_ce_di_bu_an_niu(game_x, game_y)
-            if an_ming is not None:
-                touch.grab(self)
-                self.an_xia_de_di_bu_an = an_ming
-                self._di_bu_an_niu_an_x(an_ming)
-                return True
-
-            self.chu_li_shu_biao_dian_ji(game_x, game_y)
-            return True
-        return super().on_touch_down(touch)
-
-    def on_touch_up(self, touch):
-        if touch.grab_current is self:
-            touch.ungrab(self)
-            if self.an_xia_de_di_bu_an is not None:
-                an_ming = self.an_xia_de_di_bu_an
-                self.an_xia_de_di_bu_an = None
-                self._di_bu_an_niu_tai_qi(an_ming)
-            return True
-        return super().on_touch_up(touch)
-
+    # ==================== 事件处理 ====================
     def chu_li_shu_biao_dian_ji(self, x, y):
         if self.you_xi_zt == "youxi":
             an_niu = self.jian_ce_an_niu(x, y)
@@ -733,6 +742,7 @@ class YouXi(Widget):
             if self.you_xi_zt == "lunhuixr":
                 self.you_xi_zt = "youxi"; self.lun_hui_yc = False; self.kong_ge_an_x = False
 
+    # ==================== Kivy事件桥接 ====================
     def _kivy_an_jian_an_x(self, *args):
         if len(args) < 2: return
         jian = args[1]; self.an_jian_zt[jian] = True; self.chu_li_an_jian_an_x(jian)
@@ -744,6 +754,25 @@ class YouXi(Widget):
     def _kivy_guan_bi(self, *args):
         self.baocun(); return False
 
+    def on_touch_down(self, touch):
+        if self.collide_point(*touch.pos):
+            you_xi_x = touch.x - self.x
+            you_xi_y = PING_MU_GD - (touch.y - self.y)
+            an_ming = self._jian_ce_di_bu_an_niu(you_xi_x, you_xi_y)
+            if an_ming is not None:
+                touch.grab(self); self.an_xia_de_di_bu_an = an_ming; self._di_bu_an_niu_an_x(an_ming); return True
+            self.chu_li_shu_biao_dian_ji(you_xi_x, you_xi_y); return True
+        return super().on_touch_down(touch)
+
+    def on_touch_up(self, touch):
+        if touch.grab_current is self:
+            touch.ungrab(self)
+            if self.an_xia_de_di_bu_an is not None:
+                an_ming = self.an_xia_de_di_bu_an; self.an_xia_de_di_bu_an = None; self._di_bu_an_niu_tai_qi(an_ming)
+            return True
+        return super().on_touch_up(touch)
+
+    # ==================== 存档/读档 ====================
     def baocun(self):
         cundang_data = {
             'zhan_li': self.zhan_li, 'lun_hui_cs': self.lun_hui_cs, 'diao_luo_bl': self.diao_luo_bl,
@@ -770,6 +799,7 @@ class YouXi(Widget):
             self.shang_ci_qy = ""; self.zi_mu_wb = ""; self.zi_mu_djs = 0; self.shu_ru_hc = ""; self.shu_ru_djs = 0
         except Exception: pass
 
+    # ==================== 主循环 ====================
     def yun_xing(self):
         Window.bind(on_key_down=self._kivy_an_jian_an_x)
         Window.bind(on_key_up=self._kivy_an_jian_tai_qi)
@@ -793,21 +823,14 @@ class YouXi(Widget):
 class ChiDanXiuXianApp(App):
     def build(self):
         self.title = "吃丹修仙-under"
+        Window.size = (PING_MU_KD, PING_MU_GD)
         root = FloatLayout()
         self.you_xi = YouXi()
+        self.you_xi.pos = (0, 0)
         root.add_widget(self.you_xi)
         self.you_xi.yun_xing()
         return root
 
-    # 根据大佬建议：修复安卓切后台后再切回来，导致长按误触发轮回的Bug
-    def on_pause(self):
-        if hasattr(self, 'you_xi'):
-            self.you_xi.kong_ge_an_x = False
-            self.you_xi.an_jian_zt.clear()
-        return True
-
-    def on_resume(self):
-        pass
-
+# ==================== 程序入口 ====================
 if __name__ == "__main__":
     ChiDanXiuXianApp().run()
